@@ -1,0 +1,3 @@
+CreateInstanceForEveryIp: true
+Port: 5001
+DebugMode: false
