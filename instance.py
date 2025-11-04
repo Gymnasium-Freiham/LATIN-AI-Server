@@ -1,4 +1,4 @@
-from data import load_training_data, load_and_append_data, fetch_wikipedia_summary, fetch_wikipedia_variants, fetch_wikipedia_page_text, fetch_wiktionary_definition, extract_subject_from_question
+from data import load_training_data, load_and_append_data, fetch_wikipedia_summary, fetch_wikipedia_variants, fetch_wikipedia_page_text, fetch_wiktionary_definition, extract_subject_from_question, append_data
 import os
 import json
 import nltk
@@ -20,6 +20,8 @@ from nltk.stem import WordNetLemmatizer
 from nltk import pos_tag, ne_chunk
 import matplotlib.pyplot as plt
 import re
+import mysql.connector
+import logging
 
 class LATINInstance:
     def __init__(self, gibberlink):
@@ -240,7 +242,7 @@ class LATINInstance:
         self.txt = re.sub(r'\s+', ' ', text)
         # common unit patterns (DE + EN) and numeric ranges
         self.patterns = [
-            r'(\d{1,4}(?:[.,]\d+)?\s?(?:m|Meter|Metern|meter|metres|meters|cm|Zentimeter|centimeter|km|Millimeter|mm|ft|feet|in|inch|Zoll))',
+            r'(\d{1,4}(?:[.,]\d+)?\s?(?:m|Meter|Metern|meter|metres|meters|cm|Zentimeter|centimeter|kg|Kilogramm|g|Gramm|lbs|pounds))',
             r'(\d{1,4}(?:[.,]\d+)?\s?(?:cm|Zentimeter|centimeter))',
             r'(\d{1,4}(?:[.,]\d+)?\s?(?:kg|Kilogramm|g|Gramm|lbs|pounds))',
             r'(\d+(?:[.,]\d+)?\s?[-–]\s?\d+(?:[.,]\d+)?\s?(?:m|cm|ft|in|mm))',
@@ -427,12 +429,16 @@ class LATINInstance:
                 self.query = question.split("suche nach")[-1].strip()
                 return self.search_web(self.query), None
 
-            # Begrüßung
-            self.greetings = ["hallo", "hi", "hey", "guten tag"]
-            if question.lower() in self.greetings:
-                return "Hallo! Wie kann ich Ihnen helfen?", None
 
             # NLP-Modell
+
+            # --- Exact match fallback before model prediction ---
+            # Lowercase and strip for robust matching
+            q_norm = question.strip().lower()
+            for idx, q in enumerate(self.questions):
+                if q.strip().lower() == q_norm:
+                    return self.answers[idx], self.preprocess_text(question)
+
             self.question_tfidf = self.vectorizer.transform([question])
             self.response = self.model.predict(self.question_tfidf)[0]
             self.nlp_info = self.preprocess_text(question)
@@ -486,6 +492,62 @@ class LATINInstance:
             self.learn_from_interaction(user_input, self.correct_answer)
             return self.correct_answer
         return response
+    def load_mysql_datasets(self, username, password, database, AutoTeach=True, training_data=None, key="gamesmcde"):
+        db = mysql.connector.connect(
+            host="mintai.ddns.net",
+            port=3306,
+            user=username,
+            password=password,
+            database=database
+        )
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("SELECT topic, description, example_title, example_summary, question FROM gamesmc_content")
+        rows = cursor.fetchall()
+        cursor.close()
+        db.close()
+
+        # Struktur für key "gamesmcde"
+        structured = {key: []}
+        topic_map = {}
+
+        for row in rows:
+            topic = row["topic"]
+            if topic not in topic_map:
+                topic_map[topic] = {
+                    "topic": topic,
+                    "description": row["description"],
+                    "examples": []
+                }
+
+            topic_map[topic]["examples"].append({
+                "title": row["example_title"],
+                "summary": row["example_summary"],
+                "questions": [row["question"]] if row["question"] else []
+            })
+
+        structured[key] = list(topic_map.values())
+
+        if AutoTeach and training_data is not None:
+            training_data = append_data(training_data, structured, key=key)
+            logging.info(f"Trainingseinträge erzeugt: {len(training_data)}")
+            # --- retrain model with new data ---
+            self.prepareInstance(training_data)
+            return training_data
+
+        return structured
+    def load_crawler_json_dataset(self, json_path, training_data=None, key="gamesmcde", AutoTeach=True):
+        """
+        Loads a dataset exported by crawler.py as JSON and appends it to training_data.
+        """
+        from data import load_crawler_json, append_data
+        if training_data is None:
+            training_data = []
+        structured = load_crawler_json(json_path, key=key)
+        training_data = append_data(training_data, structured, key=key)
+        if AutoTeach:
+            self.prepareInstance(training_data)
+        return training_data
+
 # Transformer-Architektur
 class TransformerModel(nn.Module):
     def __init__(self, input_dim, model_dim, num_heads, num_layers, output_dim):

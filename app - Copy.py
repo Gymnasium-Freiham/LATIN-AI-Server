@@ -4,6 +4,16 @@ from flask_cors import CORS
 import logging
 import random
 import yaml
+import nltk
+
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
+nltk.download('maxent_ne_chunker')
+nltk.download('words')
+nltk.download('averaged_perceptron_tagger_eng')
+nltk.download('maxent_ne_chunker_tab')
 
 def load_settings(path="settings.yaml"):
     with open(path, "r") as file:
@@ -20,13 +30,12 @@ app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.DEBUG)
 
-AssignedInstances = {}
-if not config.get("CreateInstanceForEveryIp"):
+if config.get("CreateInstanceForEveryIp",True):
+    AssignedInstances = {} 
+else:
     StandardInstance = LATINInstance(False)
     training_data = StandardInstance.processTrainingData()
     StandardInstance.prepareInstance(training_data)
-    StandardInstance.load_mysql_datasets("mintai_ki","zugriff","mintai_data", True, training_data, "gamesmcde")
-
 @app.route("/ai", methods=["GET", "POST"])
 def ai():
     user_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0]
@@ -40,8 +49,6 @@ def ai():
             instance = LATINInstance(False)
             training_data = instance.processTrainingData()
             instance.prepareInstance(training_data)
-            logging.info(f"Lade MySQL-Daten für IP {user_ip}...")
-            training_data= instance.load_mysql_datasets("mintai_ki", "zugriff", "mintai_data", True, training_data, "gamesmcde")
             AssignedInstances[user_ip] = instance
             response, NLPInfo = instance.chatbot_response(question)
             return {"response": response, "info": NLPInfo}

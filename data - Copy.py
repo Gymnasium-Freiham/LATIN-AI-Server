@@ -14,25 +14,6 @@ def load_json_data(file_path):
         return json.load(file)
 
 def append_data(training_data, new_data, key=None):
-    # --- gamesmcde special case: must come before generic key logic ---
-    if key == "gamesmcde":
-        for entry in new_data["gamesmcde"]:
-            # Optional: Kontextfrage zum Thema
-            if entry.get("description"):
-                training_data.append({
-                   "question": f"Worum geht es auf der Seite '{entry['topic']}'?",
-                   "answer": entry["description"]
-                })
-
-            for example in entry.get("examples", []):
-                for q in example.get("questions", []):
-                    training_data.append({
-                        "question": q,
-                        "answer": example["summary"]
-                    })
-        # Early return to avoid generic key logic
-        return training_data
-
     # If caller provided a key, keep the original explicit behavior (unchanged).
     if key is not None:
         # ...existing explicit key-handling logic...
@@ -104,21 +85,6 @@ def append_data(training_data, new_data, key=None):
                     question = f"Was ist '{example['title']}'?"
                     answer = example['summary']
                     training_data.append({"question": question, "answer": answer})
-    elif key == "gamesmcde":
-        for entry in new_data["gamesmcde"]:
-            # Optional: Kontextfrage zum Thema
-            if entry.get("description"):
-                training_data.append({
-                   "question": f"Worum geht es auf der Seite '{entry['topic']}'?",
-                   "answer": entry["description"]
-                })
-
-            for example in entry.get("examples", []):
-                for q in example.get("questions", []):
-                    training_data.append({
-                        "question": q,
-                        "answer": example["summary"]
-                    })
         else:
             # If the provided key isn't recognized, fallthrough to inference below
             pass
